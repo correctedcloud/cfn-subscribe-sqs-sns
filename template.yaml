@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  Subscribe SQS to SNS in another account and/or region
+
+Parameters:
+  TopicArn:
+    Description: SNS topic ARN
+    Type: String
+
+Resources:
+  # The SQS queue we want to subscribe to SNS
+  TheQueue:
+    DependsOn: SQSSNSSubscriber
+    Type: AWS::SQS::Queue
+
+  TheQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref TheQueue
+      PolicyDocument:
+        Id: SNSPolicy
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSNSSendMessage
+            Effect: Allow
+            Principal:
+              AWS: '*'
+            Resource: !GetAtt TheQueue.Arn
+            Action:
+              - sqs:SendMessage
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref TopicArn
+
+  Subscription:
+    Type: Custom::SnsSubscription
+    Properties:
+      ServiceToken: !GetAtt SQSSNSSubscriber.Arn
+      TopicArn: !Ref TopicArn
+      Endpoint: !GetAtt TheQueue.Arn
+
+  # Custom CFN resource to allow you to subscribe SQS to an SNS topic from another account
+  SQSSNSSubscriber:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: sqs_sns_subscriber/
+      Handler: sqs_sns_subscriber.lambda_handler
+      Runtime: python3.6
+      MemorySize: 128
+      Timeout: 30
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Sid: AllowSNSSubscribe
+              Effect: Allow
+              Action: sns:Subscribe
+              Resource: '*'
